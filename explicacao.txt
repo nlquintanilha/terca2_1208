@@ -1,0 +1,491 @@
+# Explicação Detalhada do Código - Sistema de Nutrigenética
+
+## Estrutura Geral do Projeto
+
+O projeto é construído usando três tecnologias principais:
+- **SQLite**: Banco de dados relacional leve para armazenamento local
+- **Python**: Linguagem de programação principal com bibliotecas científicas
+- **Streamlit**: Framework para criação de aplicações web interativas
+
+## Importações e Configurações Iniciais
+
+```python
+import streamlit as st
+import sqlite3
+import pandas as pd
+from datetime import datetime, date
+import hashlib
+```
+
+**Explicação das importações:**
+- `streamlit`: Framework para interface web interativa
+- `sqlite3`: Módulo nativo do Python para trabalhar com banco SQLite
+- `pandas`: Biblioteca para manipulação de dados tabulares
+- `datetime`: Para trabalhar com datas e horários
+- `hashlib`: Para funções de hash (caso necessário para segurança)
+
+```python
+st.set_page_config(
+    page_title="Sistema de Nutrigenética",
+    page_icon="🧬",
+    layout="wide"
+)
+```
+
+**Configuração da página Streamlit:**
+- `page_title`: Define o título que aparece na aba do navegador
+- `page_icon`: Emoji que aparece na aba
+- `layout="wide"`: Utiliza toda a largura da tela
+
+## Classe DatabaseManager
+
+### Inicialização
+
+```python
+def __init__(self, db_name="nutrigenetica.db"):
+    self.db_name = db_name
+    self.init_database()
+```
+
+**Explicação:**
+- Define o nome padrão do arquivo do banco de dados
+- Chama automaticamente a função `init_database()` para criar as tabelas
+
+### Conexão com o Banco
+
+```python
+def get_connection(self):
+    return sqlite3.connect(self.db_name)
+```
+
+**Explicação:**
+- Cria uma nova conexão SQLite sempre que chamada
+- Retorna o objeto de conexão para executar comandos SQL
+
+### Criação das Tabelas
+
+```python
+def init_database(self):
+    conn = self.get_connection()
+    cursor = conn.cursor()
+```
+
+**Explicação:**
+- Obtém uma conexão com o banco
+- Cria um cursor para executar comandos SQL
+
+#### Tabela GENES
+
+```python
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS genes (
+        gene_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome_gene TEXT NOT NULL UNIQUE,
+        descricao TEXT,
+        funcao_biologica TEXT,
+        data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+```
+
+**Explicação detalhada dos campos:**
+- `gene_id`: Chave primária que incrementa automaticamente
+- `nome_gene`: Nome do gene (obrigatório e único)
+- `descricao`: Descrição textual do gene
+- `funcao_biologica`: Função biológica do gene
+- `data_criacao`: Timestamp automático de quando foi criado
+
+#### Tabela MARCADORES
+
+```python
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS marcadores (
+        marcador_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        gene_id INTEGER NOT NULL,
+        rs_number TEXT NOT NULL UNIQUE,
+        tipo_variante TEXT,
+        alelos TEXT,
+        descricao_marcador TEXT,
+        nivel_evidencia TEXT CHECK (nivel_evidencia IN ('Forte', 'Moderada', 'Limitada', 'Insuficiente')),
+        score_evidencia REAL CHECK (score_evidencia >= 0 AND score_evidencia <= 10),
+        referencias_pmid TEXT,
+        data_criacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (gene_id) REFERENCES genes (gene_id)
+    )
+''')
+```
+
+**Explicação detalhada:**
+- `marcador_id`: Chave primária
+- `gene_id`: Chave estrangeira referenciando a tabela genes
+- `rs_number`: Número RS do SNP (único)
+- `CHECK` constraints: Garantem que os valores estejam dentro dos limites permitidos
+- `FOREIGN KEY`: Estabelece relação com a tabela genes
+
+#### Tabela PACIENTES
+
+```python
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS pacientes (
+        paciente_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nome_paciente TEXT NOT NULL,
+        cpf TEXT UNIQUE,
+        data_nascimento DATE,
+        sexo TEXT CHECK (sexo IN ('M', 'F')),
+        data_cadastro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+```
+
+**Explicação:**
+- `cpf UNIQUE`: CPF deve ser único (permite NULL)
+- `CHECK (sexo IN ('M', 'F'))`: Restringe valores a apenas M ou F
+
+#### Tabela RESULTADOS_ANALISES
+
+```python
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS resultados_analises (
+        resultado_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        paciente_id INTEGER NOT NULL,
+        marcador_id INTEGER NOT NULL,
+        genotipo_encontrado TEXT NOT NULL,
+        interpretacao_clinica TEXT,
+        recomendacao_nutricional TEXT,
+        nivel_risco TEXT CHECK (nivel_risco IN ('Baixo', 'Moderado', 'Alto')),
+        data_analise TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        observacoes TEXT,
+        FOREIGN KEY (paciente_id) REFERENCES pacientes (paciente_id),
+        FOREIGN KEY (marcador_id) REFERENCES marcadores (marcador_id),
+        UNIQUE(paciente_id, marcador_id)
+    )
+''')
+```
+
+**Explicação:**
+- Duas chaves estrangeiras: `paciente_id` e `marcador_id`
+- `UNIQUE(paciente_id, marcador_id)`: Evita duplicatas da mesma análise
+
+## Métodos de Inserção (CRUD - Create)
+
+### Inserir Gene
+
+```python
+def inserir_gene(self, nome_gene, descricao, funcao_biologica):
+    try:
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO genes (nome_gene, descricao, funcao_biologica)
+            VALUES (?, ?, ?)
+        ''', (nome_gene, descricao, funcao_biologica))
+        conn.commit()
+        conn.close()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+```
+
+**Explicação:**
+- `try/except`: Captura erros de integridade (ex: nome duplicado)
+- `?` placeholders: Previne SQL injection
+- `conn.commit()`: Confirma as alterações no banco
+- `conn.close()`: Fecha a conexão
+- Retorna `True` se sucesso, `False` se erro
+
+### Inserir Marcador
+
+```python
+def inserir_marcador(self, gene_id, rs_number, tipo_variante, alelos, 
+                    descricao_marcador, nivel_evidencia, score_evidencia, referencias_pmid):
+```
+
+**Explicação:**
+- Mesmo padrão do método anterior
+- Mais parâmetros devido à complexidade da tabela marcadores
+- Trata violações de integridade (rs_number duplicado)
+
+## Métodos de Consulta (CRUD - Read)
+
+### Consulta com JOIN
+
+```python
+def get_marcadores(self):
+    conn = self.get_connection()
+    df = pd.read_sql_query('''
+        SELECT m.*, g.nome_gene 
+        FROM marcadores m 
+        JOIN genes g ON m.gene_id = g.gene_id 
+        ORDER BY g.nome_gene, m.rs_number
+    ''', conn)
+    conn.close()
+    return df
+```
+
+**Explicação:**
+- `pd.read_sql_query()`: Executa SQL e retorna DataFrame pandas
+- `JOIN`: Combina dados das tabelas marcadores e genes
+- `m.*`: Seleciona todas as colunas da tabela marcadores
+- `ORDER BY`: Ordena resultados por gene e depois por rs_number
+
+### Relatório Complexo
+
+```python
+def get_relatorio_paciente(self, paciente_id):
+    conn = self.get_connection()
+    df = pd.read_sql_query('''
+        SELECT 
+            p.nome_paciente,
+            p.cpf,
+            p.data_nascimento,
+            p.sexo,
+            g.nome_gene,
+            m.rs_number,
+            m.descricao_marcador,
+            m.nivel_evidencia,
+            m.score_evidencia,
+            r.genotipo_encontrado,
+            r.interpretacao_clinica,
+            r.recomendacao_nutricional,
+            r.nivel_risco,
+            r.data_analise,
+            r.observacoes
+        FROM resultados_analises r
+        JOIN pacientes p ON r.paciente_id = p.paciente_id
+        JOIN marcadores m ON r.marcador_id = m.marcador_id
+        JOIN genes g ON m.gene_id = g.gene_id
+        WHERE p.paciente_id = ?
+        ORDER BY g.nome_gene, m.rs_number
+    ''', conn, params=(paciente_id,))
+    conn.close()
+    return df
+```
+
+**Explicação:**
+- Query com múltiplos JOINs para combinar 4 tabelas
+- `WHERE p.paciente_id = ?`: Filtra por um paciente específico
+- `params=(paciente_id,)`: Parâmetro seguro para a query
+
+## Interface Streamlit
+
+### Função Principal
+
+```python
+def main():
+    db = DatabaseManager()
+    st.title("🧬 Sistema de Nutrigenética")
+    st.markdown("### Análise de Polimorfismos SNP para Medicina Personalizada")
+```
+
+**Explicação:**
+- Instancia o gerenciador do banco
+- `st.title()`: Título principal da aplicação
+- `st.markdown()`: Texto formatado em Markdown
+
+### Navegação por Sidebar
+
+```python
+st.sidebar.title("Navegação")
+opcao = st.sidebar.selectbox(
+    "Escolha uma funcionalidade:",
+    ["🏠 Home", "🧬 Cadastrar Gene", "📍 Cadastrar Marcador", 
+     "👤 Cadastrar Paciente", "🔬 Registrar Análise", 
+     "📊 Consultar Resultados", "📋 Relatórios"]
+)
+```
+
+**Explicação:**
+- `st.sidebar`: Cria uma barra lateral
+- `selectbox`: Menu dropdown para seleção
+- Lista de opções com emojis para melhor UX
+
+### Formulários Streamlit
+
+```python
+with st.form("form_gene"):
+    nome_gene = st.text_input("Nome do Gene*", placeholder="Ex: MTHFR")
+    descricao = st.text_area("Descrição do Gene*", placeholder="Descreva a função e importância do gene")
+    funcao_biologica = st.text_area("Função Biológica*", placeholder="Detalhe os processos biológicos envolvidos")
+    
+    submitted = st.form_submit_button("Cadastrar Gene")
+```
+
+**Explicação:**
+- `with st.form()`: Context manager para agrupar inputs
+- `st.text_input()`: Campo de texto simples
+- `st.text_area()`: Campo de texto multilinha
+- `placeholder`: Texto de exemplo no campo
+- `st.form_submit_button()`: Botão que submete o formulário
+
+### Validação e Feedback
+
+```python
+if submitted:
+    if nome_gene and descricao and funcao_biologica:
+        if db.inserir_gene(nome_gene.upper(), descricao, funcao_biologica):
+            st.success(f"Gene {nome_gene} cadastrado com sucesso!")
+        else:
+            st.error("Gene já existe no banco de dados!")
+    else:
+        st.error("Todos os campos são obrigatórios!")
+```
+
+**Explicação:**
+- Verifica se formulário foi submetido
+- Valida se campos obrigatórios estão preenchidos
+- `nome_gene.upper()`: Converte para maiúsculas
+- `st.success()`: Mensagem de sucesso (verde)
+- `st.error()`: Mensagem de erro (vermelho)
+
+### Layout em Colunas
+
+```python
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    genes_count = len(db.get_genes())
+    st.metric("Genes Cadastrados", genes_count)
+```
+
+**Explicação:**
+- `st.columns(4)`: Cria 4 colunas de largura igual
+- `with col1:`: Context manager para trabalhar dentro da coluna
+- `st.metric()`: Widget para mostrar métricas com título e valor
+
+### Expansores (Expanders)
+
+```python
+with st.expander(f"🧬 {row['nome_gene']} - {row['rs_number']} | Risco: {row['nivel_risco']}"):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Informações do Marcador:**")
+        st.write(f"**Gene:** {row['nome_gene']}")
+```
+
+**Explicação:**
+- `st.expander()`: Cria seção expansível/colapsável
+- String f-formatada para título dinâmico
+- `st.markdown()` com `**texto**`: Texto em negrito
+- `st.write()`: Função genérica para exibir conteúdo
+
+### Visualizações de Dados
+
+```python
+st.dataframe(genes_df, use_container_width=True)
+```
+
+**Explicação:**
+- `st.dataframe()`: Exibe DataFrame pandas como tabela interativa
+- `use_container_width=True`: Usa toda a largura disponível
+
+```python
+evidencia_dist = marcadores_df['nivel_evidencia'].value_counts()
+st.bar_chart(evidencia_dist)
+```
+
+**Explicação:**
+- `value_counts()`: Conta ocorrências de cada valor único
+- `st.bar_chart()`: Gráfico de barras automático
+
+### Abas (Tabs)
+
+```python
+tab1, tab2, tab3, tab4 = st.tabs(["Genes", "Marcadores", "Pacientes", "Análises"])
+
+with tab1:
+    st.subheader("Relatório de Genes")
+```
+
+**Explicação:**
+- `st.tabs()`: Cria interface com abas
+- `with tab1:`: Context manager para conteúdo da aba
+
+## Tratamento de Dados
+
+### Conversão de Tipos
+
+```python
+genes_df['data_criacao'] = pd.to_datetime(genes_df['data_criacao'])
+genes_por_mes = genes_df.groupby(genes_df['data_criacao'].dt.to_period('M')).size()
+```
+
+**Explicação:**
+- `pd.to_datetime()`: Converte string para datetime
+- `.dt.to_period('M')`: Agrupa por mês
+- `.size()`: Conta registros por grupo
+
+### Agregações
+
+```python
+score_por_gene = marcadores_df.groupby('nome_gene')['score_evidencia'].mean().sort_values(ascending=False)
+```
+
+**Explicação:**
+- `groupby()`: Agrupa dados por gene
+- `.mean()`: Calcula média do score
+- `sort_values(ascending=False)`: Ordena decrescente
+
+## Função de Dados de Exemplo
+
+```python
+def popular_dados_exemplo():
+    db = DatabaseManager()
+    
+    genes_exemplo = [
+        ("MTHFR", "Metilenotetraidrofolato redutase", "Metabolismo do folato e homocisteína"),
+        ("COMT", "Catecol-O-metiltransferase", "Metabolismo da dopamina e estrógenos"),
+        # ...
+    ]
+    
+    for nome, desc, func in genes_exemplo:
+        db.inserir_gene(nome, desc, func)
+```
+
+**Explicação:**
+- Lista de tuplas com dados de exemplo
+- Loop para inserir cada gene
+- Útil para demonstração e testes
+
+## Execução da Aplicação
+
+```python
+if __name__ == "__main__":
+    # Descomente a linha abaixo para popular com dados de exemplo na primeira execução
+    # popular_dados_exemplo()
+    
+    main()
+```
+
+**Explicação:**
+- `if __name__ == "__main__":`: Executa apenas se arquivo for executado diretamente
+- Comentário sobre função de exemplo
+- Chama função principal
+
+## Boas Práticas Implementadas
+
+1. **Segurança**: Uso de placeholders (`?`) para prevenir SQL injection
+2. **Tratamento de Erros**: Try/except para capturar erros de integridade
+3. **Normalização**: Banco de dados normalizado com chaves estrangeiras
+4. **Validação**: Constraints CHECK no banco e validação na interface
+5. **UX**: Interface intuitiva com feedback claro ao usuário
+6. **Modularidade**: Separação clara entre lógica de dados e interface
+7. **Documentação**: Docstrings detalhadas em todos os métodos
+
+## Para Executar o Sistema
+
+1. Instale as dependências:
+```bash
+pip install streamlit pandas sqlite3
+```
+
+2. Salve o código em um arquivo (ex: `nutrigenetica.py`)
+
+3. Execute:
+```bash
+streamlit run nutrigenetica.py
+```
+
+4. Acesse no navegador o endereço mostrado (geralmente `localhost:8501`)
+
+Este sistema oferece uma base sólida para estudos de nutrigenética, permitindo o cadastro de genes, marcadores, pacientes e análises, com interface web amigável e relatórios detalhados.
